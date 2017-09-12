@@ -80,7 +80,7 @@ void hardwareSetup() {
 }
 
 // -----------------------------------------------------------------------------
-// BME280
+// BME280 sensor
 // -----------------------------------------------------------------------------
 
 void mySensorReadAllValues() {
@@ -287,6 +287,23 @@ void mySensorSetup() {
 	delay(5000);
 }
 
+
+// -----------------------------------------------------------------------------
+// Battery monitoring
+// -----------------------------------------------------------------------------
+void readBatteryVoltage(){
+	int sensorValue = analogRead(A0);
+	float voltage = sensorValue / 192.02;
+
+	Serial.print("Voltage: ");
+	Serial.print(voltage);
+	Serial.print(" | ");
+	Serial.print("Sensor: ");
+	Serial.println(sensorValue);
+
+}
+
+
 // -----------------------------------------------------------------------------
 // RFM69
 // -----------------------------------------------------------------------------
@@ -391,6 +408,7 @@ void setup() {
 void loop() {
 
 	mySensorReadAllValues();
+	readBatteryVoltage();
 
 //    // Sleep loop
 //    for (byte i = 0; i < SLEEP_COUNT; i++) {
