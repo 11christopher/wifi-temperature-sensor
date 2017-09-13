@@ -15,6 +15,7 @@
 #include "Wire.h"
 #include "SPI.h"
 #include <math.h>
+#include <ESP8266WiFi.h>
 
 // Define serial baudrate
 #define SERIAL_BAUD         115200
@@ -25,21 +26,7 @@
 //#define USE_MOSFET          0
 //#define BATTERY_ENABLE_PIN  A3
 
-//// Battery monitoring circuitry:
-//// Vi -- R1 -- A1 (Vo) -- R2 -- D12 (GND)
-////
-//// These values have been measured with a multimeter:
-//// R1 = 470k
-//// R2 = 1000k
-////
-//// Formulae:
-//// Vo = Vi * R2 / (R1 + R2)
-//// Vi = Vo * (R1 + R2) / R2
-//// Vo = X * 3300 / 1024;
-////
-//// Thus:
-//// Vi = X * 3300 * (1000 + 470) / 1024 / 1000;
-//#define BATTERY_RATIO       4.7373
+
 
 //definitions for temperature, humidity, preassure, altitute measurement
 
@@ -51,9 +38,19 @@
 // Globals
 // -----------------------------------------------------------------------------
 
+// network details
+const char* ssid = "";
+const char* password = "";
+
+// Web Server on port 80
+WiFiServer server(80);
+
 //Global sensor object
 BME280 mySensor;
 float La, RH, TP, E, H, T, pNN, pH;
+
+//Global voltage object
+float voltage;
 
 // -----------------------------------------------------------------------------
 // Hardware
@@ -293,7 +290,7 @@ void mySensorSetup() {
 // -----------------------------------------------------------------------------
 void readBatteryVoltage(){
 	int sensorValue = analogRead(A0);
-	float voltage = sensorValue / 192.02;
+	voltage = sensorValue / 192.02;
 
 	Serial.print("Voltage: ");
 	Serial.print(voltage);
@@ -305,13 +302,126 @@ void readBatteryVoltage(){
 
 
 // -----------------------------------------------------------------------------
-// RFM69
+// ESP8266
 // -----------------------------------------------------------------------------
 
-//void radioSetup() {
-//    radio.initialize(FREQUENCY, NODEID, NETWORKID, ENCRYPTKEY, GATEWAYID, ATC_RSSI);
-//    radio.sleep();
-//}
+void scanWifi(){
+	  // Set WiFi to station mode and disconnect from an AP if it was previously connected
+	  WiFi.mode(WIFI_STA);
+	  WiFi.disconnect();
+	  delay(100);
+
+	  Serial.println("scan start");
+
+	  // WiFi.scanNetworks will return the number of networks found
+	  int n = WiFi.scanNetworks();
+	  Serial.println("scan done");
+	  if (n == 0)
+	    Serial.println("no networks found");
+	  else
+	  {
+	    Serial.print(n);
+	    Serial.println(" networks found");
+	    for (int i = 0; i < n; ++i)
+	    {
+	      // Print SSID and RSSI for each network found
+	      Serial.print(i + 1);
+	      Serial.print(": ");
+	      Serial.print(WiFi.SSID());
+	      Serial.print(" (");
+	      Serial.print(WiFi.RSSI());
+	      Serial.print(")");
+	      Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE)?" ":"*");
+	      delay(10);
+	    }
+	  }
+	  Serial.println("");
+}
+
+void connectWifi(){
+	  WiFi.mode(WIFI_STA);
+	  WiFi.disconnect();
+	  delay(100);
+	Serial.print("Connecting to ");
+	  Serial.println(ssid);
+
+	  WiFi.begin(ssid, password);
+
+	  while (WiFi.status() != WL_CONNECTED) {
+	    delay(500);
+	    Serial.print(".");
+	  }
+	  Serial.println("");
+	  Serial.println("WiFi connected");
+}
+
+void startWebServer(){
+	  // Starting the web server
+	  server.begin();
+	  Serial.println("Web server running. Waiting for IP address...");
+	  delay(10000);
+
+	  // Printing the ESP IP address
+	  Serial.println(WiFi.localIP());
+}
+
+void serveClient(){
+	  // Listenning for new clients
+	  WiFiClient client = server.available();
+
+	  if (client) {
+	    Serial.println("New client");
+	    // bolean to locate when the http request ends
+	    boolean blank_line = true;
+	    while (client.connected()) {
+	      if (client.available()) {
+	        char c = client.read();
+
+	        if (c == '\n' && blank_line) {
+//	            getWeather();
+	            client.println("HTTP/1.1 200 OK");
+	            client.println("Content-Type: text/html");
+	            client.println("Connection: close");
+	            client.println();
+	            // your actual web page that displays temperature
+	            client.println("<!DOCTYPE HTML>");
+	            client.println("<html>");
+	            client.println("<head><META HTTP-EQUIV=\"refresh\" CONTENT=\"5\"></head>");
+	            client.println("<body><h1>ESP8266 Weather Web Server</h1>");
+	            client.println("<table border=\"2\" width=\"456\" cellpadding=\"10\"><tbody><tr><td>");
+	            client.println("<h3>Temperatur: ");
+	            client.println(T, 2);
+	            client.println("&deg;C</h3><h3>Luftdruck vor Ort: ");
+	            client.println(pH, 2);
+	            client.println("hPa</h3><h3>Luftdruck reduziert: ");
+	            client.println(pNN, 2);
+	            client.println("hPa</h3><h3>Relative Luftfeuchte: ");
+	            client.println(RH, 2);
+	            client.println("%</h3><h3>Absolute Luftfeuchte: ");
+	            client.println(La);
+	            client.println("g/m³</h3><h3>Taupunkt: ");
+	            client.println(TP, 2);
+	            client.println("&deg;C</h3><h3>Akku-Spannung: ");
+	            client.println(voltage, 2);
+	            client.println("V</h3></td></tr></tbody></table></body></html>");
+	            break;
+	        }
+	        if (c == '\n') {
+	          // when starts reading a new line
+	          blank_line = true;
+	        }
+	        else if (c != '\r') {
+	          // when finds a character on the current line
+	          blank_line = false;
+	        }
+	      }
+	    }
+	    // closing the client connection
+	    delay(1);
+	    client.stop();
+	    Serial.println("Client disconnected.");
+	  }
+}
 
 // -----------------------------------------------------------------------------
 // Flash
@@ -401,14 +511,17 @@ void readBatteryVoltage(){
 void setup() {
 	hardwareSetup();
 	mySensorSetup();
+//	scanWifi();
+	connectWifi();
+	startWebServer();
 //    flashSetup();
-//    radioSetup();
 }
 
 void loop() {
 
 	mySensorReadAllValues();
 	readBatteryVoltage();
+	serveClient();
 
 //    // Sleep loop
 //    for (byte i = 0; i < SLEEP_COUNT; i++) {
